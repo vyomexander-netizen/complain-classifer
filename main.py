@@ -1,5 +1,6 @@
 import base64
 import logging
+import re
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -7,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 
 import image_cleaning
 import db_manager
@@ -30,11 +30,22 @@ class GmailProcessRequest(BaseModel):
     access_token: str
 
 
-summarizer_tokenizer = None
-summarizer_model = None
-category_classifier = None
-
 EMAIL_SUMMARY_BATCH_SIZE = 6
+
+MESS_KEYWORDS = [
+    "mess", "food", "meal", "canteen", "breakfast", "lunch", "dinner",
+    "hygiene", "water", "taste", "quality", "kitchen",
+]
+
+HOSTEL_KEYWORDS = [
+    "hostel", "room", "fan", "bed", "bathroom", "washroom", "cleaning",
+    "warden", "mosquito", "electricity", "maintenance",
+]
+
+ACADEMICS_KEYWORDS = [
+    "class", "exam", "fees", "faculty", "teacher", "lecture", "attendance",
+    "marks", "result", "assignment", "timetable", "academic",
+]
 
 
 def normalize_summary_to_bullets(summary: str) -> str:
@@ -59,61 +70,46 @@ def normalize_summary_to_bullets(summary: str) -> str:
 
 
 def summarize_text(text: str) -> str:
-    global summarizer_tokenizer, summarizer_model
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", text.replace("\n", " "))
+        if sentence.strip()
+    ]
 
-    if summarizer_tokenizer is None or summarizer_model is None:
-        summarizer_tokenizer = AutoTokenizer.from_pretrained("./results/summarizer_model")
-        summarizer_model = AutoModelForSeq2SeqLM.from_pretrained("./results/summarizer_model")
+    if not sentences:
+        return "- No clear summary generated."
 
-    prompt = (
-        "Summarize these emails as short bullet points only. "
-        "Do not write a paragraph.\n\n"
-        f"{text}"
-    )
+    selected_sentences = []
 
-    inputs = summarizer_tokenizer(
-        prompt,
-        return_tensors="pt",
-        max_length=512,
-        truncation=True,
-    )
+    for sentence in sentences:
+        lower_sentence = sentence.lower()
+        if any(
+            keyword in lower_sentence
+            for keyword in MESS_KEYWORDS + HOSTEL_KEYWORDS + ACADEMICS_KEYWORDS
+        ):
+            selected_sentences.append(sentence)
 
-    summary_ids = summarizer_model.generate(
-        **inputs,
-        max_length=120,
-        min_length=10,
-        num_beams=4,
-        early_stopping=True,
-    )
+        if len(selected_sentences) == 5:
+            break
 
-    summary = summarizer_tokenizer.decode(
-        summary_ids[0],
-        skip_special_tokens=True,
-    )
+    if not selected_sentences:
+        selected_sentences = sentences[:5]
 
+    summary = "\n".join(f"- {sentence}" for sentence in selected_sentences)
     return normalize_summary_to_bullets(summary)
 
 
 def classify_category(text: str) -> str:
-    global category_classifier
+    lower_text = text.lower()
 
-    if category_classifier is None:
-        category_classifier = pipeline(
-            "zero-shot-classification",
-            model="facebook/bart-large-mnli",
-        )
+    mess_score = sum(1 for keyword in MESS_KEYWORDS if keyword in lower_text)
+    hostel_score = sum(1 for keyword in HOSTEL_KEYWORDS if keyword in lower_text)
+    academics_score = sum(1 for keyword in ACADEMICS_KEYWORDS if keyword in lower_text)
 
-    result = category_classifier(
-        text,
-        candidate_labels=["mess", "hostel", "academics"],
-    )
-
-    label = result["labels"][0]
-
-    if label == "mess":
+    if mess_score >= hostel_score and mess_score >= academics_score:
         return "mess_summarized"
 
-    if label == "hostel":
+    if hostel_score >= mess_score and hostel_score >= academics_score:
         return "hostel_summarized"
 
     return "academics_summarized"
