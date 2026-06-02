@@ -81,6 +81,16 @@ def fetch_summaries(category: str):
     return response.json().get("summaries", [])
 
 
+def load_demo_data():
+    response = requests.post(
+        f"{BACKEND_URL}/load-demo-data",
+        timeout=30,
+    )
+
+    response.raise_for_status()
+    return response.json()
+
+
 def show_login_page():
     st.title("Email Summary Dashboard")
     st.write("Login with Gmail to process your unread emails and view categorized summaries.")
@@ -131,13 +141,22 @@ def show_category_tab(category: str):
 def show_dashboard():
     st.title("Email Summary Dashboard")
 
-    col1, col2 = st.columns([1, 4])
+    col1, col2, col3 = st.columns([1, 1, 4])
 
     with col1:
         if st.button("Refresh"):
             st.rerun()
 
     with col2:
+        if st.button("Load Demo Data"):
+            try:
+                result = load_demo_data()
+                st.success(result.get("message", "Demo data loaded."))
+                st.rerun()
+            except requests.RequestException as exc:
+                st.error(f"Could not load demo data: {exc}")
+
+    with col3:
         st.caption("Your emails are summarized into Mess, Academics, and Hostel categories.")
 
     mess_tab, academics_tab, hostel_tab = st.tabs(

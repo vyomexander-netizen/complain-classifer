@@ -47,6 +47,30 @@ ACADEMICS_KEYWORDS = [
     "marks", "result", "assignment", "timetable", "academic",
 ]
 
+DEMO_SUMMARIES = {
+    "mess_summarized": [
+        "- Mess food was cold and rice was undercooked during lunch.",
+        "- Students reported poor hygiene in the mess dining area.",
+        "- Dinner was delayed and many students could not eat on time.",
+        "- Drinking water near the mess was not clean.",
+        "- Students requested better quality control in mess food.",
+    ],
+    "hostel_summarized": [
+        "- Water supply was unavailable in the hostel block.",
+        "- Bathroom cleaning was not done for several days.",
+        "- Room fan was not functioning despite repeated complaints.",
+        "- Hostel washrooms had blocked drainage.",
+        "- Power backup was not available during electricity cuts.",
+    ],
+    "academics_summarized": [
+        "- Assignment upload was not showing correctly on the portal.",
+        "- Attendance was marked incorrectly for a class.",
+        "- Exam result was missing from the academic portal.",
+        "- Course material was not uploaded before the exam.",
+        "- Students requested rescheduling of overlapping exams.",
+    ],
+}
+
 
 def normalize_summary_to_bullets(summary: str) -> str:
     summary = summary.strip()
@@ -264,6 +288,35 @@ def process_gmail(request: GmailProcessRequest, background_tasks: BackgroundTask
         return {
             "status": "success",
             "message": "Gmail processing started.",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/load-demo-data")
+def load_demo_data():
+    try:
+        stored_count = 0
+
+        for category, summaries in DEMO_SUMMARIES.items():
+            full_content = (
+                "Demo complaint batch used when Gmail has no unread test emails."
+            )
+
+            for summary in summaries:
+                status = db_manager.store_summary_in_db(
+                    category,
+                    summary,
+                    full_content,
+                )
+
+                if status == "stored":
+                    stored_count += 1
+
+        return {
+            "status": "success",
+            "message": f"Demo data loaded. Added {stored_count} new summaries.",
         }
 
     except Exception as e:
